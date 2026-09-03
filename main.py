@@ -14,6 +14,32 @@ from openpyxl import load_workbook
 from materialconvert_functions_5 import convert_curve, average_curves
 
 
+
+############  PASSWORD #################
+
+def check_password():
+    def password_entered():
+        if st.session_state["password_input"] == st.secrets["APP_PASSWORD"]:
+            st.session_state["password_correct"] = True
+            del st.session_state["password_input"]
+        else:
+            st.session_state["password_correct"] = False
+
+    if "password_correct" not in st.session_state:
+        st.text_input("Enter password to access Material Hub:", type="password", on_change=password_entered, key="password_input")
+        return False
+    elif not st.session_state["password_correct"]:
+        st.text_input("Enter password to access Material Hub:", type="password", on_change=password_entered, key="password_input")
+        st.error("😕 Incorrect password")
+        return False
+    else:
+        return True
+
+if not check_password():
+    st.stop()
+
+# --- Rest of your existing app code ---
+##################################################################
 # =========================================================================
 # ### SECTION 1: PAGE CONFIGURATION & DATABASE SETUP ###
 # =========================================================================
