@@ -5,3 +5,4 @@ matplotlib
 psycopg2-binary
 sqlalchemy
 matplotlib
+supabase
