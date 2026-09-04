@@ -1203,7 +1203,7 @@ elif st.session_state.current_page == "PROD_HUB":
                             with cc1:
                                 c_lotto = st.text_input(f"Lot Name {i+1}", value=f"{base_lotto}-{letters[i]}", key=f"split_lotto_{selected_prod_id}_{i}")
                             with cc2:
-                                default_len = current_l / num_children
+                                default_len = 0.0  # Set default length to 0.0 so it doesn't auto-calculate fractions
                                 c_length = st.number_input(f"Length {i+1} [mm]", min_value=0.0, max_value=current_l, value=default_len, key=f"split_l_{selected_prod_id}_{i}")
                             with cc3:
                                 c_weight = c_length * weight_per_mm
@@ -1220,6 +1220,16 @@ elif st.session_state.current_page == "PROD_HUB":
                                 st.error("Sum of child lengths exceeds the parent coil's remaining length!")
                             else:
                                 split_cloud_material(selected_prod_id, children_inputs)
+                                
+                                # Clear out the input cache from session_state so they reset properly
+                                for idx in range(int(num_children)):
+                                    key_l = f"split_l_{selected_prod_id}_{idx}"
+                                    key_lot = f"split_lotto_{selected_prod_id}_{idx}"
+                                    if key_l in st.session_state:
+                                        del st.session_state[key_l]
+                                    if key_lot in st.session_state:
+                                        del st.session_state[key_lot]
+
                                 st.success(f"Coil successfully split into {num_children} sons! Parent marked unavailable.")
                                 st.rerun()
             else:
