@@ -1080,18 +1080,18 @@ elif st.session_state.current_page == "PROD_HUB":
         display_df["Status"] = display_df.apply(determine_status, axis=1)
         display_df = display_df.drop(columns=["rd_remaining_weight_kg", "is_promoted"])
         
-        # 2. CHANGE LABELS TO FATHER AND SON
+        # 2. CHANGE LABELS TO LOTTO FATHER AND LOTTO SON
         display_df = display_df.rename(columns={
             "current_weight_kg": "Remaining Weight [kg]",
             "current_length_mm": "Remaining Length [mm]",
-            "lotto_number": "Father",
-            "lotto_figlio": "Son"
+            "lotto_number": "Lotto Father",
+            "lotto_figlio": "Lotto Son"
         })
         
         # Apply search filter if text is entered
         if search_query.strip():
             q = search_query.strip().lower()
-            mask = display_df["Father"].astype(str).str.lower().str.contains(q) | display_df["Son"].astype(str).str.lower().str.contains(q)
+            mask = display_df["Lotto Father"].astype(str).str.lower().str.contains(q) | display_df["Lotto Son"].astype(str).str.lower().str.contains(q)
             display_df = display_df[mask]
             
         st.dataframe(display_df.set_index('id'), use_container_width=True)
@@ -1109,7 +1109,7 @@ elif st.session_state.current_page == "PROD_HUB":
             selected_prod_id = st.selectbox(
                 "Select Production Batch", 
                 prod_df["id"].tolist(),
-                format_func=lambda x: f"ID {x}: {prod_df[prod_df['id']==x]['grade'].values[0]} ({prod_df[prod_df['id']==x]['lotto_number'].fillna(prod_df[prod_df['id']==x]['lotto_figlio']).values[0]})"
+                format_func=lambda x: f"ID {x}: {prod_df[prod_df['id']==x]['grade'].values[0]} ({prod_df[prod_df['id']==x]['lotto_number'].values[0] if pd.notna(prod_df[prod_df['id']==x]['lotto_number'].values[0]) else prod_df[prod_df['id']==x]['lotto_figlio'].values[0]})"
             )
             
             selected_row = prod_df[prod_df['id'] == selected_prod_id].iloc[0]
@@ -1160,8 +1160,8 @@ elif st.session_state.current_page == "PROD_HUB":
                     val_padre = selected_row["lotto_number"] if pd.notna(selected_row["lotto_number"]) else ""
                     val_figlio = selected_row["lotto_figlio"] if pd.notna(selected_row["lotto_figlio"]) else ""
                     
-                    new_lotto_padre = st.text_input("Father", value=str(val_padre))
-                    new_lotto_figlio = st.text_input("Son", value=str(val_figlio))
+                    new_lotto_padre = st.text_input("Lotto Father", value=str(val_padre))
+                    new_lotto_figlio = st.text_input("Lotto Son", value=str(val_figlio))
                     new_provider = st.text_input("Provider", value=str(selected_row["provider"]))
                     
                     if st.form_submit_button("💾 Save Changes", use_container_width=True):
@@ -1176,10 +1176,10 @@ elif st.session_state.current_page == "PROD_HUB":
                         st.success("Batch updated successfully!")
                         st.rerun()
 
-            # --- SPLIT COIL BY LENGTH WITH AUTOMATIC WEIGHT CALCULATION ---
+            # --- SPLIT COIL BY LENGTH WITH FIXED REMAINING WEIGHT CHECK ---
             with st.expander("✂️ Split Coil (Father -> Sons)", expanded=False):
-                current_w = float(selected_row.get("rd_remaining_weight_kg", selected_row["coil_weight_kg"]))
-                current_l = float(selected_row.get("rd_remaining_length_mm", selected_row["coil_length_mm"]))
+                current_w = float(selected_row.get("rd_remaining_weight_kg") if pd.notna(selected_row.get("rd_remaining_weight_kg")) else selected_row.get("coil_weight_kg", 0.0))
+                current_l = float(selected_row.get("rd_remaining_length_mm") if pd.notna(selected_row.get("rd_remaining_length_mm")) else selected_row.get("coil_length_mm", 0.0))
                 
                 base_lotto = selected_row['lotto_number'] if pd.notna(selected_row['lotto_number']) else selected_row['lotto_figlio']
                 
@@ -1191,7 +1191,6 @@ elif st.session_state.current_page == "PROD_HUB":
                     children_inputs = []
                     letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
                     
-                    # Density check for linear weight distribution based on length
                     weight_per_mm = current_w / current_l if current_l > 0 else 0.0
                     
                     for i in range(int(num_children)):
@@ -1237,8 +1236,8 @@ elif st.session_state.current_page == "PROD_HUB":
                 sig_fail = st.number_input("4. Ultimate Stress σ_uts [MPa]", value=0.0, step=5.0)
                 elongation = st.number_input("5. Elongation [%]", value=0.0, step=0.5)
             with cb:
-                lotto_padre = st.text_input("6. Father", value="")
-                lotto_figlio = st.text_input("7. Son", value="")
+                lotto_padre = st.text_input("6. Lotto Father", value="")
+                lotto_figlio = st.text_input("7. Lotto Son", value="")
                 provider = st.text_input("8. Material Provider", value="")
                 coil_weight = st.number_input("9. Coil Weight [kg]", value=0.0, step=50.0)
                 coil_length = st.number_input("10. Coil Length [mm]", value=0.0, step=1000.0)
@@ -1286,12 +1285,14 @@ elif st.session_state.current_page == "PROD_HUB":
                 if st.button("Import Batches to Database", use_container_width=True):
                     for _, r in df_upload.iterrows():
                         insert_cloud_material(
-                            r["grade"], r["thickness"], r["yield_mpa"] if "yield_mpa" in r else r.get("yield_ns", 0.0), 
+                            r["grade"], r["thickness"], 
+                            r["yield_mpa"] if "yield_mpa" in r else r.get("yield_ns", 0.0), 
                             r["uts_mpa"] if "uts_mpa" in r else r.get("uts_ns", 0.0), 
                             r["elongation_pct"] if "elongation_pct" in r else r.get("elong_ns", 0.0), 
-                            lotto_number=r.get("lotto_number"), lotto_figlio=r.get("lotto_figlio"), 
-                            provider=r["provider"],
+                            r.get("lotto_number"), r.get("lotto_figlio"), 
+                            r["provider"],
                             family=st.session_state.active_family,
+                            cert_path=None,
                             coil_weight=r.get("coil_weight_kg", 0.0),
                             coil_length_mm=r.get("coil_length_mm", 0.0)
                         )
