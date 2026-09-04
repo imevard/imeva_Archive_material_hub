@@ -805,10 +805,12 @@ elif st.session_state.current_page == "RD_DECK":
                 mat_id = info["id"]
                 if mat_id in st.session_state.experimental_curves:
                     exp = st.session_state.experimental_curves[mat_id]
-                    st.write("Debug info keys:", list(info.keys()))
-                    st.json(info)
-                    lot_name = info.get('lotto_number') or info.get('lotto_figlio') or 'N/A'
+                    #st.write("Debug info keys:", list(info.keys()))
+                    #st.json(info)
+                    lot_name = info.get('lotto', 'N/A')
                     ax_comp.plot(exp["strain"], exp["stress_MPa"], label=f"Lot: {lot_name}", lw=2)
+                    #lot_name = info.get('lotto_number') or info.get('lotto_figlio') or 'N/A'
+                    #ax_comp.plot(exp["strain"], exp["stress_MPa"], label=f"Lot: {lot_name}", lw=2)
                     #ax_comp.plot(exp["strain"], exp["stress_MPa"], label=f"{info['grade']} ({info.get('lotto_number', 'N/A')})", lw=2)
                     curves_plotted += 1
 
