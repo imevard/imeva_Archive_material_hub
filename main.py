@@ -259,7 +259,7 @@ def split_cloud_material(parent_id, children_list):
         s.commit()
 
 def log_material_consumption(material_id, weight_used_kg, length_used_mm, notes=""):
-    """Deducts used weight/length from the selected material batch safely."""
+    """Deducts used weight/length from the selected material batch safely and clears cache."""
     with conn.session as s:
         s.execute(
             text("""
@@ -275,6 +275,7 @@ def log_material_consumption(material_id, weight_used_kg, length_used_mm, notes=
             {"w_used": weight_used_kg, "l_used": length_used_mm, "notes": notes, "mat_id": int(material_id)}
         )
         s.commit()
+    st.cache_data.clear()
 
 def promote_cloud_material(material_id):
     """Marks batch as promoted while keeping it visible in Production Hub."""
@@ -824,7 +825,7 @@ elif st.session_state.current_page == "RD_DECK":
         else:
             st.caption("Awaiting inventory entries to generate strength comparison bars.")
 
-    # ---------------------------------------------------------------------
+  # ---------------------------------------------------------------------
     # ### SUB-SECTION: DETAILED REVIEW & EXPERIMENTAL MULTI-CSV ANALYSIS ###
     # ---------------------------------------------------------------------
     if st.session_state.selected_material and st.session_state.selected_material in combined_materials:
@@ -852,15 +853,27 @@ elif st.session_state.current_page == "RD_DECK":
             # Fetch initial and remaining safely using millimeters
             init_w = float(mat_info.get("coil_weight_kg") or 0.0)
             init_l = float(mat_info.get("coil_length_mm") or 0.0)
-            curr_rem_w = float(mat_info.get("rd_remaining_weight_kg") if mat_info.get("rd_remaining_weight_kg") is not None else init_w)
-            curr_rem_l = float(mat_info.get("rd_remaining_length_mm") if mat_info.get("rd_remaining_length_mm") is not None else init_l)
+            
+            raw_rem_w = mat_info.get("rd_remaining_weight_kg")
+            raw_rem_l = mat_info.get("rd_remaining_length_mm")
+            
+            curr_rem_w = float(raw_rem_w) if raw_rem_w is not None else init_w
+            curr_rem_l = float(raw_rem_l) if raw_rem_l is not None else init_l
+
+            # Handle near-zero floating point inaccuracies gracefully
+            if curr_rem_w <= 0.001:
+                curr_rem_w = 0.0
+            if curr_rem_l <= 0.01:
+                curr_rem_l = 0.0
+
+            # Pull latest notes directly from mat_info dictionary safely
+            rd_notes_val = mat_info.get("rd_notes") or mat_info.get("notes")
 
             st.markdown(f"""
-            **Remaining Stock:** **{curr_rem_w:.1f} kg** / **{curr_rem_l:.1f} mm**  
-            *(Original Baseline: {init_w:.1f} kg / {init_l:.1f} mm)*
+            **Remaining Stock:** **{curr_rem_w:.1f} kg** / **{curr_rem_l:.2f} mm**  
+            *(Original Baseline: {init_w:.1f} kg / {init_l:.1f} mm)*  
             📝**Notes / Log History:** {rd_notes_val if rd_notes_val else "No cuts logged yet."}
-                                """)
-            
+            """)
 
             with st.form(key=f"rd_tracker_form_{mat_id}"):
                 col_w1, col_w2 = st.columns(2)
@@ -894,6 +907,7 @@ elif st.session_state.current_page == "RD_DECK":
                             notes=usage_notes
                         )
                         st.success("Material usage logged and inventory deducted successfully!")
+                        st.cache_data.clear()
                         st.rerun()
                     except Exception as e:
                         st.error(f"Failed to record consumption: {e}")
@@ -1070,7 +1084,7 @@ elif st.session_state.current_page == "PROD_HUB":
         ]].copy()
         
         def determine_status(row):
-            if row["rd_remaining_weight_kg"] is not None and float(row["rd_remaining_weight_kg"]) <= 0.0:
+            if row["rd_remaining_weight_kg"] is not None and float(row["rd_remaining_weight_kg"]) <= 0.001:
                 return "🔴 Not Available"
             elif row["is_promoted"] == 1:
                 return "🚀 R&D Promoted"
@@ -1108,14 +1122,27 @@ elif st.session_state.current_page == "PROD_HUB":
         if not prod_df.empty:
             active_prod_df = prod_df[
                 prod_df['rd_remaining_weight_kg'].isna() | 
-                (prod_df['rd_remaining_weight_kg'] > 0.0)
+                (prod_df['rd_remaining_weight_kg'] > 0.001)
             ]
             
             if not active_prod_df.empty:
+                def format_batch_option(x):
+                    row_data = active_prod_df[active_prod_df['id'] == x].iloc[0]
+                    grade = row_data['grade']
+                    father = str(row_data['lotto_number']) if pd.notna(row_data['lotto_number']) else ""
+                    son = str(row_data['lotto_figlio']) if pd.notna(row_data['lotto_figlio']) else ""
+                    if son and father and father != "None":
+                        lotto_str = f"{father} → {son}"
+                    elif son and son != "None":
+                        lotto_str = son
+                    else:
+                        lotto_str = father if father != "None" else "No Lotto"
+                    return f"ID {x}: {grade} ({lotto_str})"
+
                 selected_prod_id = st.selectbox(
                     "Select Production Batch", 
                     active_prod_df["id"].tolist(),
-                    format_func=lambda x: f"ID {x}: {active_prod_df[active_prod_df['id']==x]['grade'].values[0]} ({active_prod_df[active_prod_df['id']==x]['lotto_number'].values[0] if pd.notna(active_prod_df[active_prod_df['id']==x]['lotto_number'].values[0]) else active_prod_df[active_prod_df['id']==x]['lotto_figlio'].values[0]})"
+                    format_func=format_batch_option
                 )
                 
                 selected_row = active_prod_df[active_prod_df['id'] == selected_prod_id].iloc[0]
@@ -1129,6 +1156,7 @@ elif st.session_state.current_page == "PROD_HUB":
                         if st.button("🚀 Promote to R&D", use_container_width=True):
                             promote_cloud_material(selected_prod_id)
                             st.success(f"Batch ID {selected_prod_id} promoted to R&D!")
+                            st.cache_data.clear()
                             st.rerun()
                             
                 with b2:
@@ -1143,6 +1171,7 @@ elif st.session_state.current_page == "PROD_HUB":
                                 delete_cloud_material(selected_prod_id)
                                 st.session_state.confirm_delete_id = None
                                 st.success(f"Batch ID {selected_prod_id} deleted!")
+                                st.cache_data.clear()
                                 st.rerun()
                         with col_no:
                             if st.button("Cancel", key=f"no_del_{selected_prod_id}", use_container_width=True):
@@ -1180,6 +1209,7 @@ elif st.session_state.current_page == "PROD_HUB":
                                 coil_weight_kg=new_weight, coil_length_mm=new_length
                             )
                             st.success("Batch updated successfully!")
+                            st.cache_data.clear()
                             st.rerun()
 
                 # --- SPLIT COIL BY LENGTH WITH FIXED REMAINING WEIGHT CHECK ---
@@ -1190,9 +1220,9 @@ elif st.session_state.current_page == "PROD_HUB":
                     rem_l_val = selected_row.get("rd_remaining_length_mm")
                     current_l = float(rem_l_val) if pd.notna(rem_l_val) else float(selected_row.get("coil_length_mm", 0.0))
                     
-                    base_lotto = selected_row['lotto_number'] if pd.notna(selected_row['lotto_number']) else selected_row['lotto_figlio']
+                    base_lotto = selected_row['lotto_figlio'] if pd.notna(selected_row['lotto_figlio']) else selected_row['lotto_number']
                     
-                    st.write(f"Available to split: **{current_w:.1f} kg** / **{current_l:.1f} mm**")
+                    st.write(f"Available to split: **{current_w:.2f} kg** / **{current_l:.2f} mm**")
                     
                     num_children = st.number_input("Number of Sons", min_value=2, max_value=10, value=2, step=1)
                     
@@ -1208,7 +1238,7 @@ elif st.session_state.current_page == "PROD_HUB":
                             with cc1:
                                 c_lotto = st.text_input(f"Lot Name {i+1}", value=f"{base_lotto}-{letters[i]}", key=f"split_lotto_{selected_prod_id}_{i}")
                             with cc2:
-                                default_len = 0.0  # Set default length to 0.0 so it doesn't auto-calculate fractions
+                                default_len = 0.0  
                                 c_length = st.number_input(f"Length {i+1} [mm]", min_value=0.0, max_value=current_l, value=default_len, key=f"split_l_{selected_prod_id}_{i}")
                             with cc3:
                                 c_weight = c_length * weight_per_mm
@@ -1226,7 +1256,6 @@ elif st.session_state.current_page == "PROD_HUB":
                             else:
                                 split_cloud_material(selected_prod_id, children_inputs)
                                 
-                                # Clear out the input cache from session_state so they reset properly
                                 for idx in range(int(num_children)):
                                     key_l = f"split_l_{selected_prod_id}_{idx}"
                                     key_lot = f"split_lotto_{selected_prod_id}_{idx}"
@@ -1237,7 +1266,6 @@ elif st.session_state.current_page == "PROD_HUB":
 
                                 st.success(f"Coil successfully split into {num_children} sons! Parent marked unavailable.")
                                 st.cache_data.clear()
-
                                 st.rerun()
             else:
                 st.info("No active production batches available for actions.")
@@ -1283,6 +1311,7 @@ elif st.session_state.current_page == "PROD_HUB":
                     coil_length_mm=coil_length
                 )
                 st.success("Batch registered into Production database!")
+                st.cache_data.clear()
                 st.rerun()
 
     with entry_tab2:
@@ -1320,6 +1349,7 @@ elif st.session_state.current_page == "PROD_HUB":
                             coil_length_mm=r.get("coil_length_mm", 0.0)
                         )
                     st.success("Successfully imported production batches!")
+                    st.cache_data.clear()
                     st.rerun()
             except Exception as e:
                 st.error(f"Error reading file structure: {e}")
