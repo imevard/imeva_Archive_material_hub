@@ -858,7 +858,9 @@ elif st.session_state.current_page == "RD_DECK":
             st.markdown(f"""
             **Remaining Stock:** **{curr_rem_w:.1f} kg** / **{curr_rem_l:.1f} mm**  
             *(Original Baseline: {init_w:.1f} kg / {init_l:.1f} mm)*
-            """)
+            📝**Notes / Log History:** {rd_notes_val if rd_notes_val else "No cuts logged yet."}
+                                """)
+            
 
             with st.form(key=f"rd_tracker_form_{mat_id}"):
                 col_w1, col_w2 = st.columns(2)
@@ -1182,8 +1184,11 @@ elif st.session_state.current_page == "PROD_HUB":
 
                 # --- SPLIT COIL BY LENGTH WITH FIXED REMAINING WEIGHT CHECK ---
                 with st.expander("✂️ Split Coil (Father -> Sons)", expanded=False):
-                    current_w = float(selected_row.get("rd_remaining_weight_kg") if pd.notna(selected_row.get("rd_remaining_weight_kg")) else selected_row.get("coil_weight_kg", 0.0))
-                    current_l = float(selected_row.get("rd_remaining_length_mm") if pd.notna(selected_row.get("rd_remaining_length_mm")) else selected_row.get("coil_length_mm", 0.0))
+                    rem_w_val = selected_row.get("rd_remaining_weight_kg")
+                    current_w = float(rem_w_val) if pd.notna(rem_w_val) else float(selected_row.get("coil_weight_kg", 0.0))
+
+                    rem_l_val = selected_row.get("rd_remaining_length_mm")
+                    current_l = float(rem_l_val) if pd.notna(rem_l_val) else float(selected_row.get("coil_length_mm", 0.0))
                     
                     base_lotto = selected_row['lotto_number'] if pd.notna(selected_row['lotto_number']) else selected_row['lotto_figlio']
                     
@@ -1231,6 +1236,8 @@ elif st.session_state.current_page == "PROD_HUB":
                                         del st.session_state[key_lot]
 
                                 st.success(f"Coil successfully split into {num_children} sons! Parent marked unavailable.")
+                                st.cache_data.clear()
+
                                 st.rerun()
             else:
                 st.info("No active production batches available for actions.")
