@@ -360,8 +360,6 @@ def update_cloud_material(
         )
         s.commit()
 
-
-
 # =========================================================================
 # ### SECTION 2: REGULATORY COMPLIANCE HELPER FUNCTIONS ###
 # =========================================================================
@@ -1106,118 +1104,126 @@ elif st.session_state.current_page == "PROD_HUB":
     with p_col2:
         st.subheader("Actions & Edits")
         if not prod_df.empty:
-            selected_prod_id = st.selectbox(
-                "Select Production Batch", 
-                prod_df["id"].tolist(),
-                format_func=lambda x: f"ID {x}: {prod_df[prod_df['id']==x]['grade'].values[0]} ({prod_df[prod_df['id']==x]['lotto_number'].values[0] if pd.notna(prod_df[prod_df['id']==x]['lotto_number'].values[0]) else prod_df[prod_df['id']==x]['lotto_figlio'].values[0]})"
-            )
+            active_prod_df = prod_df[
+                prod_df['rd_remaining_weight_kg'].isna() | 
+                (prod_df['rd_remaining_weight_kg'] > 0.0)
+            ]
             
-            selected_row = prod_df[prod_df['id'] == selected_prod_id].iloc[0]
-            is_already_promoted = (selected_row["is_promoted"] == 1)
+            if not active_prod_df.empty:
+                selected_prod_id = st.selectbox(
+                    "Select Production Batch", 
+                    active_prod_df["id"].tolist(),
+                    format_func=lambda x: f"ID {x}: {active_prod_df[active_prod_df['id']==x]['grade'].values[0]} ({active_prod_df[active_prod_df['id']==x]['lotto_number'].values[0] if pd.notna(active_prod_df[active_prod_df['id']==x]['lotto_number'].values[0]) else active_prod_df[active_prod_df['id']==x]['lotto_figlio'].values[0]})"
+                )
+                
+                selected_row = active_prod_df[active_prod_df['id'] == selected_prod_id].iloc[0]
+                is_already_promoted = (selected_row["is_promoted"] == 1)
 
-            b1, b2 = st.columns(2)
-            with b1:
-                if is_already_promoted:
-                    st.info("Already in R&D")
-                else:
-                    if st.button("🚀 Promote to R&D", use_container_width=True):
-                        promote_cloud_material(selected_prod_id)
-                        st.success(f"Batch ID {selected_prod_id} promoted to R&D!")
-                        st.rerun()
-                        
-            with b2:
-                if "confirm_delete_id" not in st.session_state:
-                    st.session_state.confirm_delete_id = None
-
-                if st.session_state.confirm_delete_id == selected_prod_id:
-                    st.warning("Are you sure?")
-                    col_yes, col_no = st.columns(2)
-                    with col_yes:
-                        if st.button("Yes, Delete", key=f"yes_del_{selected_prod_id}", use_container_width=True):
-                            delete_cloud_material(selected_prod_id)
-                            st.session_state.confirm_delete_id = None
-                            st.success(f"Batch ID {selected_prod_id} deleted!")
+                b1, b2 = st.columns(2)
+                with b1:
+                    if is_already_promoted:
+                        st.info("Already in R&D")
+                    else:
+                        if st.button("🚀 Promote to R&D", use_container_width=True):
+                            promote_cloud_material(selected_prod_id)
+                            st.success(f"Batch ID {selected_prod_id} promoted to R&D!")
                             st.rerun()
-                    with col_no:
-                        if st.button("Cancel", key=f"no_del_{selected_prod_id}", use_container_width=True):
-                            st.session_state.confirm_delete_id = None
-                            st.rerun()
-                else:
-                    if st.button("🗑️ Delete Batch", use_container_width=True):
-                        st.session_state.confirm_delete_id = selected_prod_id
-                        st.rerun()
+                            
+                with b2:
+                    if "confirm_delete_id" not in st.session_state:
+                        st.session_state.confirm_delete_id = None
 
-            with st.expander("✏️ Edit Selected Batch Values"):
-                with st.form(key=f"edit_form_{selected_prod_id}"):
-                    new_grade = st.text_input("Grade", value=str(selected_row["grade"]))
-                    new_thickness = st.number_input("Thickness [mm]", value=float(selected_row["thickness"]), step=0.1)
-                    new_yield = st.number_input("Yield Stress [MPa]", value=float(selected_row["yield_mpa"]), step=5.0)
-                    new_uts = st.number_input("Failure Stress [MPa]", value=float(selected_row["uts_mpa"]), step=5.0)
-                    new_elong = st.number_input("Elongation [%]", value=float(selected_row["elongation_pct"]), step=0.5)
-                    new_weight = st.number_input("Coil Weight [kg]", value=float(selected_row.get("coil_weight_kg", 0.0)), step=50.0)
-                    new_length = st.number_input("Coil Length [mm]", value=float(selected_row.get("coil_length_mm", 0.0)), step=100.0)
-                    
-                    val_padre = selected_row["lotto_number"] if pd.notna(selected_row["lotto_number"]) else ""
-                    val_figlio = selected_row["lotto_figlio"] if pd.notna(selected_row["lotto_figlio"]) else ""
-                    
-                    new_lotto_padre = st.text_input("Lotto Father", value=str(val_padre))
-                    new_lotto_figlio = st.text_input("Lotto Son", value=str(val_figlio))
-                    new_provider = st.text_input("Provider", value=str(selected_row["provider"]))
-                    
-                    if st.form_submit_button("💾 Save Changes", use_container_width=True):
-                        update_cloud_material(
-                            selected_prod_id, 
-                            grade=new_grade, thickness=new_thickness, 
-                            yield_mpa=new_yield, uts_mpa=new_uts, 
-                            elongation_pct=new_elong, lotto_number=new_lotto_padre, 
-                            lotto_figlio=new_lotto_figlio, provider=new_provider,
-                            coil_weight_kg=new_weight, coil_length_mm=new_length
-                        )
-                        st.success("Batch updated successfully!")
-                        st.rerun()
-
-            # --- SPLIT COIL BY LENGTH WITH FIXED REMAINING WEIGHT CHECK ---
-            with st.expander("✂️ Split Coil (Father -> Sons)", expanded=False):
-                current_w = float(selected_row.get("rd_remaining_weight_kg") if pd.notna(selected_row.get("rd_remaining_weight_kg")) else selected_row.get("coil_weight_kg", 0.0))
-                current_l = float(selected_row.get("rd_remaining_length_mm") if pd.notna(selected_row.get("rd_remaining_length_mm")) else selected_row.get("coil_length_mm", 0.0))
-                
-                base_lotto = selected_row['lotto_number'] if pd.notna(selected_row['lotto_number']) else selected_row['lotto_figlio']
-                
-                st.write(f"Available to split: **{current_w:.1f} kg** / **{current_l:.1f} mm**")
-                
-                num_children = st.number_input("Number of Sons", min_value=2, max_value=10, value=2, step=1)
-                
-                with st.form(key=f"split_form_{selected_prod_id}"):
-                    children_inputs = []
-                    letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
-                    
-                    weight_per_mm = current_w / current_l if current_l > 0 else 0.0
-                    
-                    for i in range(int(num_children)):
-                        st.markdown(f"**Son {i+1} (Son {letters[i]})**")
-                        cc1, cc2, cc3 = st.columns(3)
-                        with cc1:
-                            c_lotto = st.text_input(f"Lot Name {i+1}", value=f"{base_lotto}-{letters[i]}", key=f"split_lotto_{selected_prod_id}_{i}")
-                        with cc2:
-                            default_len = current_l / num_children
-                            c_length = st.number_input(f"Length {i+1} [mm]", min_value=0.0, max_value=current_l, value=default_len, key=f"split_l_{selected_prod_id}_{i}")
-                        with cc3:
-                            c_weight = c_length * weight_per_mm
-                            st.write(f"Weight {i+1} [kg]")
-                            st.metric(label="", value=f"{c_weight:.2f} kg")
-                        
-                        children_inputs.append({"lotto": c_lotto, "weight": c_weight, "length": c_length})
-                        st.write("---")
-                        
-                    if st.form_submit_button("Confirm Split & Close Parent", use_container_width=True):
-                        total_l = sum(c["length"] for c in children_inputs)
-                        
-                        if total_l > current_l:
-                            st.error("Sum of child lengths exceeds the parent coil's remaining length!")
-                        else:
-                            split_cloud_material(selected_prod_id, children_inputs)
-                            st.success(f"Coil successfully split into {num_children} sons! Parent marked unavailable.")
+                    if st.session_state.confirm_delete_id == selected_prod_id:
+                        st.warning("Are you sure?")
+                        col_yes, col_no = st.columns(2)
+                        with col_yes:
+                            if st.button("Yes, Delete", key=f"yes_del_{selected_prod_id}", use_container_width=True):
+                                delete_cloud_material(selected_prod_id)
+                                st.session_state.confirm_delete_id = None
+                                st.success(f"Batch ID {selected_prod_id} deleted!")
+                                st.rerun()
+                        with col_no:
+                            if st.button("Cancel", key=f"no_del_{selected_prod_id}", use_container_width=True):
+                                st.session_state.confirm_delete_id = None
+                                st.rerun()
+                    else:
+                        if st.button("🗑️ Delete Batch", use_container_width=True):
+                            st.session_state.confirm_delete_id = selected_prod_id
                             st.rerun()
+
+                with st.expander("✏️ Edit Selected Batch Values"):
+                    with st.form(key=f"edit_form_{selected_prod_id}"):
+                        new_grade = st.text_input("Grade", value=str(selected_row["grade"]))
+                        new_thickness = st.number_input("Thickness [mm]", value=float(selected_row["thickness"]), step=0.1)
+                        new_yield = st.number_input("Yield Stress [MPa]", value=float(selected_row["yield_mpa"]), step=5.0)
+                        new_uts = st.number_input("Failure Stress [MPa]", value=float(selected_row["uts_mpa"]), step=5.0)
+                        new_elong = st.number_input("Elongation [%]", value=float(selected_row["elongation_pct"]), step=0.5)
+                        new_weight = st.number_input("Coil Weight [kg]", value=float(selected_row.get("coil_weight_kg", 0.0)), step=50.0)
+                        new_length = st.number_input("Coil Length [mm]", value=float(selected_row.get("coil_length_mm", 0.0)), step=100.0)
+                        
+                        val_padre = selected_row["lotto_number"] if pd.notna(selected_row["lotto_number"]) else ""
+                        val_figlio = selected_row["lotto_figlio"] if pd.notna(selected_row["lotto_figlio"]) else ""
+                        
+                        new_lotto_padre = st.text_input("Lotto Father", value=str(val_padre))
+                        new_lotto_figlio = st.text_input("Lotto Son", value=str(val_figlio))
+                        new_provider = st.text_input("Provider", value=str(selected_row["provider"]))
+                        
+                        if st.form_submit_button("💾 Save Changes", use_container_width=True):
+                            update_cloud_material(
+                                selected_prod_id, 
+                                grade=new_grade, thickness=new_thickness, 
+                                yield_mpa=new_yield, uts_mpa=new_uts, 
+                                elongation_pct=new_elong, lotto_number=new_lotto_padre, 
+                                lotto_figlio=new_lotto_figlio, provider=new_provider,
+                                coil_weight_kg=new_weight, coil_length_mm=new_length
+                            )
+                            st.success("Batch updated successfully!")
+                            st.rerun()
+
+                # --- SPLIT COIL BY LENGTH WITH FIXED REMAINING WEIGHT CHECK ---
+                with st.expander("✂️ Split Coil (Father -> Sons)", expanded=False):
+                    current_w = float(selected_row.get("rd_remaining_weight_kg") if pd.notna(selected_row.get("rd_remaining_weight_kg")) else selected_row.get("coil_weight_kg", 0.0))
+                    current_l = float(selected_row.get("rd_remaining_length_mm") if pd.notna(selected_row.get("rd_remaining_length_mm")) else selected_row.get("coil_length_mm", 0.0))
+                    
+                    base_lotto = selected_row['lotto_number'] if pd.notna(selected_row['lotto_number']) else selected_row['lotto_figlio']
+                    
+                    st.write(f"Available to split: **{current_w:.1f} kg** / **{current_l:.1f} mm**")
+                    
+                    num_children = st.number_input("Number of Sons", min_value=2, max_value=10, value=2, step=1)
+                    
+                    with st.form(key=f"split_form_{selected_prod_id}"):
+                        children_inputs = []
+                        letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+                        
+                        weight_per_mm = current_w / current_l if current_l > 0 else 0.0
+                        
+                        for i in range(int(num_children)):
+                            st.markdown(f"**Son {i+1} (Son {letters[i]})**")
+                            cc1, cc2, cc3 = st.columns(3)
+                            with cc1:
+                                c_lotto = st.text_input(f"Lot Name {i+1}", value=f"{base_lotto}-{letters[i]}", key=f"split_lotto_{selected_prod_id}_{i}")
+                            with cc2:
+                                default_len = current_l / num_children
+                                c_length = st.number_input(f"Length {i+1} [mm]", min_value=0.0, max_value=current_l, value=default_len, key=f"split_l_{selected_prod_id}_{i}")
+                            with cc3:
+                                c_weight = c_length * weight_per_mm
+                                st.write(f"Weight {i+1} [kg]")
+                                st.metric(label="", value=f"{c_weight:.2f} kg")
+                            
+                            children_inputs.append({"lotto": c_lotto, "weight": c_weight, "length": c_length})
+                            st.write("---")
+                            
+                        if st.form_submit_button("Confirm Split & Close Parent", use_container_width=True):
+                            total_l = sum(c["length"] for c in children_inputs)
+                            
+                            if total_l > current_l:
+                                st.error("Sum of child lengths exceeds the parent coil's remaining length!")
+                            else:
+                                split_cloud_material(selected_prod_id, children_inputs)
+                                st.success(f"Coil successfully split into {num_children} sons! Parent marked unavailable.")
+                                st.rerun()
+            else:
+                st.info("No active production batches available for actions.")
 
     st.write("---")
     
@@ -1231,16 +1237,16 @@ elif st.session_state.current_page == "PROD_HUB":
             ca, cb = st.columns(2)
             with ca:
                 grade = st.text_input("1. Material Grade / Name", value="")
-                thickness = st.number_input("2. Thickness [mm]", value=0.0, step=0.1)
-                sig_yield = st.number_input("3. Yield Stress σ_yield [MPa]", value=0.0, step=5.0)
-                sig_fail = st.number_input("4. Ultimate Stress σ_uts [MPa]", value=0.0, step=5.0)
-                elongation = st.number_input("5. Elongation [%]", value=0.0, step=0.5)
+                thickness = st.number_input("2. Thickness [mm]", value=None, step=0.1)
+                sig_yield = st.number_input("3. Yield Stress σ_yield [MPa]", value=None, step=5.0)
+                sig_fail = st.number_input("4. Ultimate Stress σ_uts [MPa]", value=None, step=5.0)
+                elongation = st.number_input("5. Elongation [%]", value=None, step=0.5)
             with cb:
                 lotto_padre = st.text_input("6. Lotto Father", value="")
                 lotto_figlio = st.text_input("7. Lotto Son", value="")
                 provider = st.text_input("8. Material Provider", value="")
-                coil_weight = st.number_input("9. Coil Weight [kg]", value=0.0, step=50.0)
-                coil_length = st.number_input("10. Coil Length [mm]", value=0.0, step=1000.0)
+                coil_weight = st.number_input("9. Coil Weight [kg]", value=None, step=50.0)
+                coil_length = st.number_input("10. Coil Length [mm]", value=None, step=1000.0)
             
             uploaded_cert = st.file_uploader("Upload Test Certificate (.pdf, .png, .jpg)", type=["pdf", "png", "jpg", "jpeg"])
             
