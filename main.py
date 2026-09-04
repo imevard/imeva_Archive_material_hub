@@ -315,7 +315,6 @@ def demote_cloud_material(material_id):
         del st.session_state.experimental_curves[material_id]
     st.cache_data.clear()
 
-# Update your function definition to accept 'lotto_figlio'
 def update_cloud_material(
     mat_id, 
     grade, 
@@ -1052,128 +1051,58 @@ elif st.session_state.current_page == "PROD_HUB":
     st.title(f"{family_name} — Production Quality Control Hub")
     st.write("---")
     
-    entry_tab1, entry_tab2 = st.tabs(["✍️ Manual Form Entry", "📁 File Upload (.txt / .csv / .xlsx)"])
-    
-    with entry_tab1:
-        with st.form("prod_form_manual", clear_on_submit=True):
-            ca, cb = st.columns(2)
-            with ca:
-                grade = st.text_input("1. Material Grade / Name", value="S500MC")
-                thickness = st.number_input("2. Thickness [mm]", value=3.0, step=0.1)
-                sig_yield = st.number_input("3. Yield Stress σ_yield [MPa]", value=550.0, step=5.0)
-                sig_fail = st.number_input("4. Ultimate Stress σ_uts [MPa]", value=598.0, step=5.0)
-                elongation = st.number_input("5. Elongation [%]", value=19.0, step=0.5)
-            with cb:
-                lotto_padre = st.text_input("6. Lotto Padre", value="LOT-2026-X01")
-                lotto_figlio = st.text_input("7. Lotto Figlio", value="")
-                provider = st.text_input("8. Material Provider", value="IMEVA")
-                coil_weight = st.number_input("9. Coil Weight [kg]", value=1500.0, step=50.0)
-                coil_length = st.number_input("10. Coil Length [mm]", value=250.0, step=1000.0)
-            
-            uploaded_cert = st.file_uploader("Upload Test Certificate (.pdf, .png, .jpg)", type=["pdf", "png", "jpg", "jpeg"])
-            
-            if st.form_submit_button("💾 Save Batch ", use_container_width=True):
-                cert_url = None
-                active_lotto_label = lotto_padre if lotto_padre else (lotto_figlio if lotto_figlio else "batch")
-                
-                if uploaded_cert is not None:
-                    # Upload directly to Supabase storage bucket instead of local folder
-                    cert_url = upload_certificate_to_cloud(uploaded_cert, active_lotto_label)
-
-                insert_cloud_material(
-                    grade, thickness, sig_yield, sig_fail, elongation, 
-                    lotto_padre=lotto_padre, lotto_figlio=lotto_figlio, provider=provider, 
-                    family=st.session_state.active_family,
-                    cert_path=cert_url,
-                    coil_weight=coil_weight,
-                    coil_length_mm=coil_length
-                )
-                st.success("Batch registered into Production database!")
-                st.rerun()
-
-    with entry_tab2:
-        uploaded_file = st.file_uploader("Upload Batch Import File", type=["txt", "csv", "xlsx"])
-        if uploaded_file is not None:
-            try:
-                filename = uploaded_file.name.lower()
-                if filename.endswith(".txt") or filename.endswith(".csv"):
-                    df_upload = pd.read_csv(
-                        uploaded_file, 
-                        header=None,
-                        names=["grade", "thickness", "yield_mpa", "uts_mpa", "elongation_pct", "lotto_number", "lotto_figlio", "provider", "coil_weight_kg", "coil_length_mm"]
-                    )
-                elif filename.endswith(".xlsx"):
-                    df_upload = pd.read_excel(uploaded_file)
-                    if "lotto_figlio" not in df_upload.columns:
-                        df_upload["lotto_figlio"] = None
-
-                for col in df_upload.select_dtypes(include=["object"]).columns:
-                    df_upload[col] = df_upload[col].astype(str).str.strip()
-                st.dataframe(df_upload, use_container_width=True)
-
-                if st.button(" Import Batches to Database", use_container_width=True):
-                    for _, r in df_upload.iterrows():
-                        insert_cloud_material(
-                            r["grade"], r["thickness"], r["yield_mpa"], 
-                            r["uts_mpa"], r["elongation_pct"], 
-                            lotto_padre=r.get("lotto_number"), lotto_figlio=r.get("lotto_figlio"), 
-                            provider=r["provider"],
-                            family=st.session_state.active_family,
-                            coil_weight=r.get("coil_weight_kg", 0.0),
-                            coil_length_mm=r.get("coil_length_mm", 0.0)
-                        )
-                    st.success("Successfully imported production batches!")
-                    st.rerun()
-            except Exception as e:
-                st.error(f"Error reading file structure: {e}")
-
-    st.write("---")
-    
+    # 1. FETCH DATA FIRST SO WE CAN SHOW THE QUEUE & SEARCH ON TOP
     prod_df = fetch_cloud_materials(family=st.session_state.active_family)
     
+    st.subheader(f"📦 Production Batch Queue ({family_name})")
+    
+    # Search box by Lotto number (Father or Son)
+    search_query = st.text_input("🔍 Search by Lotto Number (Father or Son)", value="")
+    
     if not prod_df.empty:
-        pass
+        prod_df['current_weight_kg'] = prod_df['rd_remaining_weight_kg'].fillna(prod_df['coil_weight_kg'])
+        prod_df['current_length_mm'] = prod_df['rd_remaining_length_mm'].fillna(prod_df['coil_length_mm'])
+
+        display_df = prod_df[[
+            "id", "grade", "thickness", "yield_mpa", "uts_mpa", "elongation_pct", 
+            "current_weight_kg", "current_length_mm", "lotto_number", "lotto_figlio", "provider", 
+            "rd_remaining_weight_kg", "is_promoted"
+        ]].copy()
+        
+        def determine_status(row):
+            if row["rd_remaining_weight_kg"] is not None and float(row["rd_remaining_weight_kg"]) <= 0.0:
+                return "🔴 Not Available"
+            elif row["is_promoted"] == 1:
+                return "🚀 R&D Promoted"
+            else:
+                return "🟢 In Production"
+
+        display_df["Status"] = display_df.apply(determine_status, axis=1)
+        display_df = display_df.drop(columns=["rd_remaining_weight_kg", "is_promoted"])
+        
+        # 2. CHANGE LABELS TO FATHER AND SON
+        display_df = display_df.rename(columns={
+            "current_weight_kg": "Remaining Weight [kg]",
+            "current_length_mm": "Remaining Length [mm]",
+            "lotto_number": "Father",
+            "lotto_figlio": "Son"
+        })
+        
+        # Apply search filter if text is entered
+        if search_query.strip():
+            q = search_query.strip().lower()
+            mask = display_df["Father"].astype(str).str.lower().str.contains(q) | display_df["Son"].astype(str).str.lower().str.contains(q)
+            display_df = display_df[mask]
+            
+        st.dataframe(display_df.set_index('id'), use_container_width=True)
+    else:
+        st.info("No production batches in database queue.")
 
     st.write("---")
     
+    # 3. ACTIONS, EDITS, AND SPLIT COIL CONTROLS
     p_col1, p_col2 = st.columns([1.2, 0.8])
     
-    with p_col1:
-            st.subheader(f" Production Batch Queue ({family_name})")
-            if prod_df.empty:
-                st.info("No production batches in database queue.")
-            else:
-                prod_df['current_weight_kg'] = prod_df['rd_remaining_weight_kg'].fillna(prod_df['coil_weight_kg'])
-                prod_df['current_length_mm'] = prod_df['rd_remaining_length_mm'].fillna(prod_df['coil_length_mm'])
-
-                # 1. MAKE SURE "id" IS INCLUDED HERE
-                display_df = prod_df[[
-                    "id", "grade", "thickness", "yield_mpa", "uts_mpa", "elongation_pct", 
-                    "current_weight_kg", "current_length_mm", "lotto_number", "lotto_figlio", "provider", 
-                    "rd_remaining_weight_kg", "is_promoted"
-                ]].copy()
-                
-                def determine_status(row):
-                    if row["rd_remaining_weight_kg"] is not None and float(row["rd_remaining_weight_kg"]) <= 0.0:
-                        return "🔴 Not Available"
-                    elif row["is_promoted"] == 1:
-                        return "🚀 R&D Promoted"
-                    else:
-                        return "🟢 In Production"
-
-                display_df["Status"] = display_df.apply(determine_status, axis=1)
-                display_df = display_df.drop(columns=["rd_remaining_weight_kg", "is_promoted"])
-                
-                display_df = display_df.rename(columns={
-                    "current_weight_kg": "Remaining Weight [kg]",
-                    "current_length_mm": "Remaining Length [mm]",
-                    "lotto_number": "Lotto Padre",
-                    "lotto_figlio": "Lotto Figlio"
-                })
-                
-                # 2. SET THE INDEX TO 'id' ON YOUR FORMATTED DATAFRAME AND DISPLAY IT
-                st.dataframe(display_df.set_index('id'), use_container_width=True)
-            
     with p_col2:
         st.subheader("Actions & Edits")
         if not prod_df.empty:
@@ -1231,28 +1160,24 @@ elif st.session_state.current_page == "PROD_HUB":
                     val_padre = selected_row["lotto_number"] if pd.notna(selected_row["lotto_number"]) else ""
                     val_figlio = selected_row["lotto_figlio"] if pd.notna(selected_row["lotto_figlio"]) else ""
                     
-                    new_lotto_padre = st.text_input("Lotto Padre", value=str(val_padre))
-                    new_lotto_figlio = st.text_input("Lotto Figlio", value=str(val_figlio))
+                    new_lotto_padre = st.text_input("Father", value=str(val_padre))
+                    new_lotto_figlio = st.text_input("Son", value=str(val_figlio))
                     new_provider = st.text_input("Provider", value=str(selected_row["provider"]))
                     
                     if st.form_submit_button("💾 Save Changes", use_container_width=True):
                         update_cloud_material(
-                            selected_prod_id, # Pass the ID positionally first, or match the exact parameter name like mat_id=selected_prod_id
-                            grade=new_grade, 
-                            thickness=new_thickness, 
-                            yield_mpa=new_yield, 
-                            uts_mpa=new_uts, 
-                            elongation_pct=new_elong, 
-                            lotto_number=new_lotto_padre, 
-                            lotto_figlio=new_lotto_figlio, 
-                            provider=new_provider,
-                            coil_weight_kg=new_weight, 
-                            coil_length_mm=new_length
+                            selected_prod_id, 
+                            grade=new_grade, thickness=new_thickness, 
+                            yield_mpa=new_yield, uts_mpa=new_uts, 
+                            elongation_pct=new_elong, lotto_number=new_lotto_padre, 
+                            lotto_figlio=new_lotto_figlio, provider=new_provider,
+                            coil_weight_kg=new_weight, coil_length_mm=new_length
                         )
                         st.success("Batch updated successfully!")
                         st.rerun()
 
-            with st.expander("✂️ Split Coil (Lotto Padre -> Figli)", expanded=False):
+            # --- SPLIT COIL BY LENGTH WITH AUTOMATIC WEIGHT CALCULATION ---
+            with st.expander("✂️ Split Coil (Father -> Sons)", expanded=False):
                 current_w = float(selected_row.get("rd_remaining_weight_kg", selected_row["coil_weight_kg"]))
                 current_l = float(selected_row.get("rd_remaining_length_mm", selected_row["coil_length_mm"]))
                 
@@ -1260,32 +1185,117 @@ elif st.session_state.current_page == "PROD_HUB":
                 
                 st.write(f"Available to split: **{current_w:.1f} kg** / **{current_l:.1f} mm**")
                 
-                num_children = st.number_input("Number of Children (Figli)", min_value=2, max_value=10, value=2, step=1)
+                num_children = st.number_input("Number of Sons", min_value=2, max_value=10, value=2, step=1)
                 
                 with st.form(key=f"split_form_{selected_prod_id}"):
                     children_inputs = []
                     letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
                     
+                    # Density check for linear weight distribution based on length
+                    weight_per_mm = current_w / current_l if current_l > 0 else 0.0
+                    
                     for i in range(int(num_children)):
-                        st.markdown(f"**Child {i+1} (Figlio {letters[i]})**")
+                        st.markdown(f"**Son {i+1} (Son {letters[i]})**")
                         cc1, cc2, cc3 = st.columns(3)
                         with cc1:
                             c_lotto = st.text_input(f"Lot Name {i+1}", value=f"{base_lotto}-{letters[i]}", key=f"split_lotto_{selected_prod_id}_{i}")
                         with cc2:
-                            c_weight = st.number_input(f"Weight {i+1} [kg]", min_value=0.0, max_value=current_w, value=current_w / num_children, key=f"split_w_{selected_prod_id}_{i}")
+                            default_len = current_l / num_children
+                            c_length = st.number_input(f"Length {i+1} [mm]", min_value=0.0, max_value=current_l, value=default_len, key=f"split_l_{selected_prod_id}_{i}")
                         with cc3:
-                            c_length = st.number_input(f"Length {i+1} [mm]", min_value=0.0, max_value=current_l, value=current_l / num_children, key=f"split_l_{selected_prod_id}_{i}")
+                            c_weight = c_length * weight_per_mm
+                            st.write(f"Weight {i+1} [kg]")
+                            st.metric(label="", value=f"{c_weight:.2f} kg")
                         
                         children_inputs.append({"lotto": c_lotto, "weight": c_weight, "length": c_length})
                         st.write("---")
                         
                     if st.form_submit_button("Confirm Split & Close Parent", use_container_width=True):
-                        total_w = sum(c["weight"] for c in children_inputs)
                         total_l = sum(c["length"] for c in children_inputs)
                         
-                        if total_w > current_w or total_l > current_l:
-                            st.error("Sum of child weights or lengths exceeds the parent coil's remaining stock!")
+                        if total_l > current_l:
+                            st.error("Sum of child lengths exceeds the parent coil's remaining length!")
                         else:
                             split_cloud_material(selected_prod_id, children_inputs)
-                            st.success(f"Coil successfully split into {num_children} children! Parent marked unavailable.")
+                            st.success(f"Coil successfully split into {num_children} sons! Parent marked unavailable.")
                             st.rerun()
+
+    st.write("---")
+    
+    # 4. MANUAL FORM ENTRY & FILE UPLOAD AT THE BOTTOM
+    st.subheader("✍️ Manual Form Entry (New Batch)")
+    
+    entry_tab1, entry_tab2 = st.tabs(["Manual Form Entry", "📁 File Upload (.txt / .csv / .xlsx)"])
+    
+    with entry_tab1:
+        with st.form("prod_form_manual", clear_on_submit=True):
+            ca, cb = st.columns(2)
+            with ca:
+                grade = st.text_input("1. Material Grade / Name", value="")
+                thickness = st.number_input("2. Thickness [mm]", value=0.0, step=0.1)
+                sig_yield = st.number_input("3. Yield Stress σ_yield [MPa]", value=0.0, step=5.0)
+                sig_fail = st.number_input("4. Ultimate Stress σ_uts [MPa]", value=0.0, step=5.0)
+                elongation = st.number_input("5. Elongation [%]", value=0.0, step=0.5)
+            with cb:
+                lotto_padre = st.text_input("6. Father", value="")
+                lotto_figlio = st.text_input("7. Son", value="")
+                provider = st.text_input("8. Material Provider", value="")
+                coil_weight = st.number_input("9. Coil Weight [kg]", value=0.0, step=50.0)
+                coil_length = st.number_input("10. Coil Length [mm]", value=0.0, step=1000.0)
+            
+            uploaded_cert = st.file_uploader("Upload Test Certificate (.pdf, .png, .jpg)", type=["pdf", "png", "jpg", "jpeg"])
+            
+            if st.form_submit_button("💾 Save Batch", use_container_width=True):
+                cert_url = None
+                active_lotto_label = lotto_padre if lotto_padre else (lotto_figlio if lotto_figlio else "batch")
+                
+                if uploaded_cert is not None:
+                    cert_url = upload_certificate_to_cloud(uploaded_cert, active_lotto_label)
+
+                insert_cloud_material(
+                    grade, thickness, sig_yield, sig_fail, elongation, 
+                    lotto_padre=lotto_padre, lotto_figlio=lotto_figlio, provider=provider, 
+                    family=st.session_state.active_family,
+                    cert_path=cert_url,
+                    coil_weight=coil_weight,
+                    coil_length_mm=coil_length
+                )
+                st.success("Batch registered into Production database!")
+                st.rerun()
+
+    with entry_tab2:
+        uploaded_file = st.file_uploader("Upload Batch Import File", type=["txt", "csv", "xlsx"])
+        if uploaded_file is not None:
+            try:
+                filename = uploaded_file.name.lower()
+                if filename.endswith(".txt") or filename.endswith(".csv"):
+                    df_upload = pd.read_csv(
+                        uploaded_file, 
+                        header=None,
+                        names=["grade", "thickness", "yield_ns", "uts_ns", "elong_ns", "lotto_number", "lotto_figlio", "provider", "coil_weight_kg", "coil_length_mm"]
+                    )
+                elif filename.endswith(".xlsx"):
+                    df_upload = pd.read_excel(uploaded_file)
+                    if "lotto_figlio" not in df_upload.columns:
+                        df_upload["lotto_figlio"] = None
+
+                for col in df_upload.select_dtypes(include=["object"]).columns:
+                    df_upload[col] = df_upload[col].astype(str).str.strip()
+                st.dataframe(df_upload, use_container_width=True)
+
+                if st.button("Import Batches to Database", use_container_width=True):
+                    for _, r in df_upload.iterrows():
+                        insert_cloud_material(
+                            r["grade"], r["thickness"], r["yield_mpa"] if "yield_mpa" in r else r.get("yield_ns", 0.0), 
+                            r["uts_mpa"] if "uts_mpa" in r else r.get("uts_ns", 0.0), 
+                            r["elongation_pct"] if "elongation_pct" in r else r.get("elong_ns", 0.0), 
+                            lotto_number=r.get("lotto_number"), lotto_figlio=r.get("lotto_figlio"), 
+                            provider=r["provider"],
+                            family=st.session_state.active_family,
+                            coil_weight=r.get("coil_weight_kg", 0.0),
+                            coil_length_mm=r.get("coil_length_mm", 0.0)
+                        )
+                    st.success("Successfully imported production batches!")
+                    st.rerun()
+            except Exception as e:
+                st.error(f"Error reading file structure: {e}")
