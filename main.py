@@ -17,6 +17,7 @@ from materialconvert_functions_5 import convert_curve, average_curves
 
 ############  PASSWORD #################
 
+
 def check_password():
     def password_entered():
         if st.session_state["password_input"] == st.secrets["APP_PASSWORD"]:
@@ -718,9 +719,9 @@ elif st.session_state.current_page == "RD_DECK":
     # 3. Apply the loop with clean, deduplicated card columns
     with main_col:
         st.subheader("Available Inventory & Promoted Batches")
-        st.caption(" Format: `[Cert: YS, UTS | Lab: YS, UTS]`")
+        st.caption("Format: `[Cert: YS, UTS | Lab: YS, UTS]`")
         if not combined_materials:
-            st.info(" No materials promoted to R&D yet. Add and promote batches from the Production Hub.")
+            st.info("No materials promoted to R&D yet. Add and promote batches from the Production Hub.")
         elif not filtered_materials:
             st.warning("No promoted materials match the current sidebar filter limits.")
         else:
@@ -743,27 +744,17 @@ elif st.session_state.current_page == "RD_DECK":
                     with prev_col:
                         cert_url = info.get("datasheet")
                         if cert_url:
-                            # Modal Trigger Button
                             if st.button("🔍 View Cert", key=f"btn_cert_{info['id']}"):
                                 show_cert_modal(mat_name, cert_url, info)
                         else:
                             st.markdown("*(No Cert)*")
                             
-                    #st.caption(f"Status: {status_badge} | {inv_badge} | Remaining Stock: `{rem_weight:.1f} kg` / Original: `{orig_weight} kg`")
-
                 with card_col2:
-                    # Un-promote Button
                     if st.button("↩️ Un-promote", key=f"demote_rd_{info['id']}", help="Send back to Production Hub"):
                         demote_cloud_material(info['id'])
                         st.toast("Material un-promoted and sent back to Production!")
                         st.rerun()
-                #st.markdown(
-                #    f"**Remaining Stock:** **{info['rd_remaining_weight_kg']:.1f} kg** / **{info['rd_remaining_length_mm']:.1f} mm**  \n"
-                #    f"*(Original Baseline: {info['coil_weight_kg']:.1f} kg / {info['coil_length_mm']:.1f} mm)*  \n"
-                #    f"📝 **Notes / Log History:** {info['rd_notes'] if info['rd_notes'] else 'No cuts logged yet.'}"
-                #) 
 
-                # Analyze Button
                 if st.button(f"Analyze & Process Data", key=f"btn_{info['id']}", use_container_width=True):
                     st.session_state.selected_material = mat_name
                 
@@ -805,13 +796,9 @@ elif st.session_state.current_page == "RD_DECK":
                 mat_id = info["id"]
                 if mat_id in st.session_state.experimental_curves:
                     exp = st.session_state.experimental_curves[mat_id]
-                    #st.write("Debug info keys:", list(info.keys()))
-                    #st.json(info)
-                    lot_name = info.get('lotto', 'N/A')
+                    # Robust fallback for lotto identifier legend bug
+                    lot_name = info.get('lotto') or info.get('lotto_number') or info.get('lotto_figlio') or 'N/A'
                     ax_comp.plot(exp["strain"], exp["stress_MPa"], label=f"Lot: {lot_name}", lw=2)
-                    #lot_name = info.get('lotto_number') or info.get('lotto_figlio') or 'N/A'
-                    #ax_comp.plot(exp["strain"], exp["stress_MPa"], label=f"Lot: {lot_name}", lw=2)
-                    #ax_comp.plot(exp["strain"], exp["stress_MPa"], label=f"{info['grade']} ({info.get('lotto_number', 'N/A')})", lw=2)
                     curves_plotted += 1
 
             if curves_plotted > 0:
@@ -827,7 +814,7 @@ elif st.session_state.current_page == "RD_DECK":
         else:
             st.caption("Awaiting inventory entries to generate strength comparison bars.")
 
-  # ---------------------------------------------------------------------
+    # ---------------------------------------------------------------------
     # ### SUB-SECTION: DETAILED REVIEW & EXPERIMENTAL MULTI-CSV ANALYSIS ###
     # ---------------------------------------------------------------------
     if st.session_state.selected_material and st.session_state.selected_material in combined_materials:
@@ -844,15 +831,13 @@ elif st.session_state.current_page == "RD_DECK":
             st.subheader("📜 Material Mill Certificate Parameters")
             st.write(f"**Structural Grade:** {mat_info['grade']}")
             st.write(f"**Nominal Thickness:** {mat_info['thickness']} mm")
-            st.write(f"**Lotto :** {mat_info['lotto']}")
+            st.write(f"**Lotto :** {mat_info.get('lotto') or mat_info.get('lotto_number') or 'N/A'}")
             st.write(f"**Yield Stress ($R_e$):** {mat_info['cert_yield_MPa']} MPa")
             st.write(f"**Tensile Stress ($R_m$):** {mat_info['cert_uts_MPa']} MPa")
 
-            # --- R&D CONSUMPTION & USAGE TRACKER ---
             st.markdown("---")
             st.subheader("Log Material Usage")
             
-            # Fetch initial and remaining safely using millimeters
             init_w = float(mat_info.get("coil_weight_kg") or 0.0)
             init_l = float(mat_info.get("coil_length_mm") or 0.0)
             
@@ -862,13 +847,11 @@ elif st.session_state.current_page == "RD_DECK":
             curr_rem_w = float(raw_rem_w) if raw_rem_w is not None else init_w
             curr_rem_l = float(raw_rem_l) if raw_rem_l is not None else init_l
 
-            # Handle near-zero floating point inaccuracies gracefully
             if curr_rem_w <= 0.001:
                 curr_rem_w = 0.0
             if curr_rem_l <= 0.01:
                 curr_rem_l = 0.0
 
-            # Pull latest notes directly from mat_info dictionary safely
             rd_notes_val = mat_info.get("rd_notes") or mat_info.get("notes")
 
             st.markdown(f"""
@@ -880,25 +863,11 @@ elif st.session_state.current_page == "RD_DECK":
             with st.form(key=f"rd_tracker_form_{mat_id}"):
                 col_w1, col_w2 = st.columns(2)
                 with col_w1:
-                    weight_consumed = st.number_input(
-                        "Weight Used [kg]", 
-                        value=0.0, 
-                        step=0.1,
-                        help="Amount of material consumed for this cutting operation."
-                    )
+                    weight_consumed = st.number_input("Weight Used [kg]", value=0.0, step=0.1)
                 with col_w2:
-                    length_consumed = st.number_input(
-                        "Length Used [mm]", 
-                        value=0.0, 
-                        step=100.0,
-                        help="Length cut for tensile dog bones."
-                    )
+                    length_consumed = st.number_input("Length Used [mm]", value=0.0, step=100.0)
                 
-                usage_notes = st.text_input(
-                    "Usage Purpose / Notes", 
-                    value="Cut for tensile dog bone batch",
-                    placeholder="e.g., Prepared 3 dog bone specimens"
-                )
+                usage_notes = st.text_input("Usage Purpose / Notes", value="")
                 
                 if st.form_submit_button("📉 Deduct & Update Inventory", use_container_width=True):
                     try:
@@ -916,7 +885,6 @@ elif st.session_state.current_page == "RD_DECK":
 
             st.markdown("---")
             st.subheader("🔬 Chemical Composition Analysis")
-
             uploaded_spec = st.file_uploader("Upload Spectrometer Report (Excel/CSV)", type=["xlsx", "csv"], key=f"spec_{mat_id}")
         
         if uploaded_spec is not None:
@@ -943,10 +911,7 @@ elif st.session_state.current_page == "RD_DECK":
 
                 try:
                     df_json_records = df_spec.to_dict(orient="records") if df_spec is not None else []
-                    spec_payload = json.dumps({
-                        "df_records": df_json_records,
-                        "comp": comp_dict
-                    })
+                    spec_payload = json.dumps({"df_records": df_json_records, "comp": comp_dict})
                     
                     c_val_db = next((v for k, v in temp_numeric.items() if k.strip().upper() == "C"), 0.0)
                     si_val_db = next((v for k, v in temp_numeric.items() if k.strip().upper() == "SI"), 0.0)
@@ -1032,13 +997,11 @@ elif st.session_state.current_page == "RD_DECK":
                 v_val = next((v for k, v in numeric_comp.items() if k.strip().upper() == "V"), 0.0)
                 ni_val = next((v for k, v in numeric_comp.items() if k.strip().upper() == "NI"), 0.0)
                 cu_val = next((v for k, v in numeric_comp.items() if k.strip().upper() == "CU"), 0.0)
-                
                 p_val = next((v for k, v in numeric_comp.items() if k.strip().upper() == "P"), 0.0)
                 s_val = next((v for k, v in numeric_comp.items() if k.strip().upper() == "S"), 0.0)
                 
                 cev = float(c_val) + float(mn_val)/6.0 + (float(cr_val)+float(mo_val)+float(v_val))/5.0 + (float(ni_val)+float(cu_val))/15.0
                 total_impurities = float(p_val) + float(s_val)
-                
                 is_clean = (float(p_val) <= 0.030) and (float(s_val) <= 0.100)
                 impurity_status = "✅ Clean (Pass)" if is_clean else "❌ High Impurities (Fail)"
                 
@@ -1052,7 +1015,144 @@ elif st.session_state.current_page == "RD_DECK":
             except Exception:
                 st.metric(label="Calculated Carbon Equivalent (CEV IIW)", value="N/A")
 
+        with action_col:
+            st.subheader("Dog Bone Tensile Test CSV Processing")
+            st.caption("Upload multiple CSV files corresponding to dog bone specimens for this material.")
+            
+            uploaded_dogbones = st.file_uploader(
+                "Upload Dog Bone CSV Files", 
+                type=["csv"], 
+                accept_multiple_files=True,
+                key=f"uploader_{mat_id}"
+            )
 
+            if st.button("Process & Save Dog Bone Data to Cloud", key=f"process_btn_{mat_id}"):
+                if not uploaded_dogbones:
+                    st.warning("Please upload at least one dog bone CSV file before processing.")
+                else:
+                    runs_data = []
+                    os.makedirs("temp_uploads", exist_ok=True)
+                    for uploaded_file in uploaded_dogbones:
+                        temp_path = os.path.join("temp_uploads", uploaded_file.name)
+                        with open(temp_path, "wb") as f:
+                            f.write(uploaded_file.getbuffer())
+                        runs_data.append(convert_curve(temp_path))
+                    
+                    results_computed = average_curves(runs_data)
+                    curve_payload_dict = {
+                        "strain": results_computed["eng_strain_clean"].tolist() if hasattr(results_computed["eng_strain_clean"], "tolist") else list(results_computed["eng_strain_clean"]),
+                        "stress_MPa": (results_computed["eng_stress_clean"] * 1000.0).tolist() if hasattr(results_computed["eng_stress_clean"], "tolist") else list(results_computed["eng_stress_clean"] * 1000.0),
+                        "sigy_MPa": float(results_computed["sigy_GPa"] * 1000.0),
+                        "uts_MPa": float(results_computed["uts_GPa"] * 1000.0),
+                        "E_GPa": float(results_computed["E_GPa"]),
+                        "elongation_pct": float(results_computed["elongation_pct"]),
+                        "avg_strain": results_computed["avg_strain"].tolist() if hasattr(results_computed["avg_strain"], "tolist") else list(results_computed["avg_strain"]),
+                        "avg_stress": results_computed["avg_stress"].tolist() if hasattr(results_computed["avg_stress"], "tolist") else list(results_computed["avg_stress"]),
+                        "eng_strain_clean": results_computed["eng_strain_clean"].tolist() if hasattr(results_computed["eng_strain_clean"], "tolist") else list(results_computed["eng_strain_clean"]),
+                        "eng_stress_clean": results_computed["eng_stress_clean"].tolist() if hasattr(results_computed["eng_stress_clean"], "tolist") else list(results_computed["eng_stress_clean"]),
+                        "deck": results_computed["deck"]
+                    }
+                    
+                    st.session_state.experimental_curves[mat_id] = {
+                        "strain": np.array(curve_payload_dict["strain"]),
+                        "stress_MPa": np.array(curve_payload_dict["stress_MPa"]),
+                        "sigy_MPa": curve_payload_dict["sigy_MPa"],
+                        "uts_MPa": curve_payload_dict["uts_MPa"],
+                        "E_GPa": curve_payload_dict["E_GPa"],
+                        "elongation_pct": curve_payload_dict["elongation_pct"],
+                        "avg_strain": np.array(curve_payload_dict["avg_strain"]),
+                        "avg_stress": np.array(curve_payload_dict["avg_stress"]),
+                        "eng_strain_clean": np.array(curve_payload_dict["eng_strain_clean"]),
+                        "eng_stress_clean": np.array(curve_payload_dict["eng_stress_clean"]),
+                        "deck": curve_payload_dict["deck"]
+                    }
+                    
+                    try:
+                        mech_json_payload = json.dumps(curve_payload_dict)
+                        with conn.session as s:
+                            s.execute(
+                                text("""
+                                    UPDATE materials SET 
+                                        experimental_curves_json = :mech_json,
+                                        calculated_sigy_mpa = :sigy,
+                                        calculated_uts_mpa = :uts,
+                                        calculated_e_gpa = :egpa,
+                                        calculated_elongation_pct = :elong
+                                    WHERE id = :id
+                                """),
+                                params={
+                                    "mech_json": mech_json_payload,
+                                    "sigy": float(results_computed["sigy_GPa"] * 1000.0),
+                                    "uts": float(results_computed["uts_GPa"] * 1000.0),
+                                    "egpa": float(results_computed["E_GPa"]),
+                                    "elong": float(results_computed["elongation_pct"]),
+                                    "id": int(mat_id)
+                                }
+                            )
+                            s.commit()
+                            st.cache_data.clear() 
+                            st.toast("Dog bone analysis saved to cloud via SQL!", icon="☁️")
+                            st.success(f"Successfully processed and saved {len(runs_data)} specimen run(s)!")
+                            st.rerun() 
+                    except Exception as db_err:
+                        st.warning(f"Cloud sync error for mechanical data: {db_err}")
+
+            if mat_id not in st.session_state.experimental_curves:
+                saved_json = mat_info.get("experimental_curves_json") if "experimental_curves_json" in mat_info else None
+                if saved_json:
+                    loaded_dict = json.loads(saved_json) if isinstance(saved_json, str) else saved_json
+                    st.session_state.experimental_curves[mat_id] = {
+                        "strain": np.array(loaded_dict["strain"]),
+                        "stress_MPa": np.array(loaded_dict["stress_MPa"]),
+                        "sigy_MPa": loaded_dict["sigy_MPa"],
+                        "uts_MPa": loaded_dict["uts_MPa"],
+                        "E_GPa": loaded_dict["E_GPa"],
+                        "elongation_pct": loaded_dict["elongation_pct"],
+                        "avg_strain": np.array(loaded_dict["avg_strain"]),
+                        "avg_stress": np.array(loaded_dict["avg_stress"]),
+                        "eng_strain_clean": np.array(loaded_dict["eng_strain_clean"]),
+                        "eng_stress_clean": np.array(loaded_dict["eng_stress_clean"]),
+                        "deck": loaded_dict["deck"]
+                    }
+
+            results = st.session_state.experimental_curves.get(mat_id, None)
+
+            if results:
+                st.metric(label="Calculated Young's Modulus (E)", value=f"{results['E_GPa']:.2f} GPa")
+                st.metric(label="Calculated Lab Yield Avg (sigy)", value=f"{results['sigy_MPa']:.1f} MPa")
+                st.metric(label="Calculated Lab Ultimate Stress (UTS)", value=f"{results['uts_MPa']:.1f} MPa")
+                st.metric(label="Calculated Elongation (A%)", value=f"{results.get('elongation_pct', 0.0):.2f} %")
+            else:
+                st.info("Upload tensile test CSV logs above and click process to calculate true strain/stress properties.")
+
+            if results:
+                st.write("---")
+                plot_col, deck_col = st.columns([1, 1])
+                
+                with plot_col:
+                    st.subheader("📈 Averaged Stress-Strain Trajectory")
+                    fig, ax = plt.subplots(figsize=(6, 4.5))
+                    
+                    ax.plot(results["avg_strain"], results["avg_stress"] * 1000.0, label="Raw Engineering Average", color="navy", linestyle="--")
+                    ax.plot(results["eng_strain_clean"], results["eng_stress_clean"] * 1000.0, label="Monotonic Clean Filter", color="orange", lw=2)
+                    
+                    ax.set_xlabel("Strain [-]")
+                    ax.set_ylabel("Stress [MPa]")
+                    ax.grid(True, linestyle=":")
+                    ax.legend()
+                    st.pyplot(fig)
+
+                with deck_col:
+                    st.subheader("💾 LS-DYNA Keyword Deck Export")
+                    st.caption("MAT_024 card automatically generated from experimental curves.")
+                    st.text_area("Keyword Output Preview", results["deck"], height=280)
+                    
+                    st.download_button(
+                        label="📥 Download MAT_024 Keyword Deck (*.k)",
+                        data=results["deck"],
+                        file_name=f"MAT_024_{mat_info['grade']}_{int(mat_info['thickness']*100)}mm.k",
+                        mime="text/plain"
+                    )
  
 # =========================================================================
 # ### SECTION 6: PRODUCTION QUALITY CONTROL HUB PAGE ###
