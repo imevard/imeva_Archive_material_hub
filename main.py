@@ -26,11 +26,13 @@ def check_password():
             st.session_state["password_correct"] = False
 
     if "password_correct" not in st.session_state:
-        st.text_input("Enter password to access Material Hub:", type="password", on_change=password_entered, key="password_input")
+        st.image("imeva_logo.jpg", width=200)
+        st.text_input("Enter password to access IMEVA Material Hub:", type="password", on_change=password_entered, key="password_input")
         return False
     elif not st.session_state["password_correct"]:
-        st.text_input("Enter password to access Material Hub:", type="password", on_change=password_entered, key="password_input")
-        st.error("😕 Incorrect password")
+        st.image("imeva_logo.jpg", width=200)
+        st.text_input("Enter password to access IMEVA Material Hub:", type="password", on_change=password_entered, key="password_input")
+        st.error("Incorrect password")
         return False
     else:
         return True
@@ -82,7 +84,7 @@ def upload_certificate_to_cloud(uploaded_file, lotto_identifier):
     
 
 
-@st.dialog("Mill Certificate Viewer", width="large")
+@st.dialog("Supplier Mill Certificate Viewer", width="large")
 def show_cert_modal(mat_name, cert_url, info):
     st.markdown(f"### Material: `{mat_name}`")
     st.write(f"**Grade:** {info.get('grade')} | **Lotto:** {info.get('lotto_number')} | **Provider:** {info.get('provider')}")
@@ -652,10 +654,10 @@ elif st.session_state.current_page == "RD_DECK":
 
     st.sidebar.write("---")
 
-    with st.sidebar.expander(" Certificate or/& Laboratory", expanded=True):
+    with st.sidebar.expander(" Supplier Cert. or/& Laboratory", expanded=True):
         cert_status_filter = st.radio( 
             "Select Data mode",
-            ["All Batches", "Certificate", "Laboratory"]
+            ["All Batches", "Supplier Cert.", "Laboratory"]
         )
 
     with st.sidebar.expander("Mech. prop", expanded=True):
@@ -684,7 +686,7 @@ elif st.session_state.current_page == "RD_DECK":
         
         mat_id = metadata.get("id")
         
-        if cert_status_filter == "Certificate":
+        if cert_status_filter == "Supplier Cert.":
             active_yield = metadata.get("cert_yield_MPa", 0)
             active_uts = metadata.get("cert_uts_MPa", 0)
             active_elong = metadata.get("elongation_pct", 0)
@@ -848,7 +850,7 @@ elif st.session_state.current_page == "RD_DECK":
 
             # --- R&D CONSUMPTION & USAGE TRACKER ---
             st.markdown("---")
-            st.subheader("📦 Log Material Usage")
+            st.subheader("Log Material Usage")
             
             # Fetch initial and remaining safely using millimeters
             init_w = float(mat_info.get("coil_weight_kg") or 0.0)
@@ -1076,6 +1078,9 @@ elif st.session_state.current_page == "PROD_HUB":
     if not prod_df.empty:
         prod_df['current_weight_kg'] = prod_df['rd_remaining_weight_kg'].fillna(prod_df['coil_weight_kg'])
         prod_df['current_length_mm'] = prod_df['rd_remaining_length_mm'].fillna(prod_df['coil_length_mm'])
+        ############# THIS PART TRYING TO FIX PROBLEM OF SMALL FLOATING 
+        prod_df['current_weight_kg'] = prod_df['current_weight_kg'].apply(lambda x: 0.0 if x <= 0.001 else x)
+        prod_df['current_length_mm'] = prod_df['current_length_mm'].apply(lambda x: 0.0 if x <= 0.01 else x)
 
         display_df = prod_df[[
             "id", "grade", "thickness", "yield_mpa", "uts_mpa", "elongation_pct", 
@@ -1153,7 +1158,7 @@ elif st.session_state.current_page == "PROD_HUB":
                     if is_already_promoted:
                         st.info("Already in R&D")
                     else:
-                        if st.button("🚀 Promote to R&D", use_container_width=True):
+                        if st.button("Move to R&D", use_container_width=True):
                             promote_cloud_material(selected_prod_id)
                             st.success(f"Batch ID {selected_prod_id} promoted to R&D!")
                             st.cache_data.clear()
@@ -1289,7 +1294,7 @@ elif st.session_state.current_page == "PROD_HUB":
             with cb:
                 lotto_padre = st.text_input("6. Lotto Father", value="")
                 lotto_figlio = st.text_input("7. Lotto Son", value="")
-                provider = st.text_input("8. Material Provider", value="")
+                provider = st.text_input("8. Material Supplier", value="")
                 coil_weight = st.number_input("9. Coil Weight [kg]", value=None, step=50.0)
                 coil_length = st.number_input("10. Coil Length [mm]", value=None, step=1000.0)
             
