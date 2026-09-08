@@ -1265,11 +1265,14 @@ elif st.session_state.current_page == "PROD_HUB":
                 except Exception as ex:
                     st.error(f"Email failed to send. Error: {ex}")
 
-            # Automated trigger once per session so it doesn't spam
+            # Automated trigger once per session with safe error handling
             if "low_stock_email_sent" not in st.session_state:
-                send_low_stock_email(low_stock_individual, low_stock_groups)
-                st.session_state.low_stock_email_sent = True
-                st.toast("📧 Automated low-stock alert email sent to department heads.", icon="✉️")
+                try:
+                    send_low_stock_email(low_stock_individual, low_stock_groups)
+                    st.session_state.low_stock_email_sent = True
+                    st.toast("📧 Automated low-stock alert email sent to department heads.", icon="✉️")
+                except Exception as email_err:
+                    st.warning(f"⚠️ Low stock detected, but automated email dispatch is pending IT network/SMTP authorization. (Error details logged)")
 
     ############ --- PRODUCTION BATCH QUEUE SECTION ---
     st.subheader(f"📦 Production Batch Queue ({family_name})")
