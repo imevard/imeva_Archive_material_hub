@@ -1504,12 +1504,15 @@ elif st.session_state.current_page == "PROD_HUB":
                         coil_weight=coil_weight_kg_val,
                         coil_length_mm=coil_length
                     )
-                    st.success("Batch registered into Production database!")
+                    st.toast("✅ Batch registered into Production database!")
                     st.cache_data.clear()
                     st.rerun()
 
         with entry_tab2:
-            uploaded_file = st.file_uploader("Upload Batch Import File", type=["txt", "csv", "xlsx"])
+            if "file_uploader_key" not in st.session_state:
+                st.session_state.file_uploader_key = 0
+
+            uploaded_file = st.file_uploader("Upload Batch Import File", type=["txt", "csv", "xlsx"], key=f"uploader_{st.session_state.file_uploader_key}")  
             if uploaded_file is not None:
                 try:
                     filename = uploaded_file.name.lower()
@@ -1517,12 +1520,14 @@ elif st.session_state.current_page == "PROD_HUB":
                         df_upload = pd.read_csv(
                             uploaded_file, 
                             header=None,
-                            names=["grade", "thickness", "yield_ns", "uts_ns", "elong_ns", "lotto_number", "lotto_figlio", "provider", "coil_weight_kg", "coil_length_mm"]
+                            names=["grade", "thickness", "yield_ns", "uts_ns", "elong_ns", "lotto_number", "lotto_figlio", "provider", "coil_weight_TON", "coil_length_mm"]
                         )
                     elif filename.endswith(".xlsx"):
                         df_upload = pd.read_excel(uploaded_file)
                         if "lotto_figlio" not in df_upload.columns:
                             df_upload["lotto_figlio"] = None
+                        if "coil_weight_kg" in df_upload.columns and "coil_weight_TON" not in df_upload.columns:
+                            df_upload = df_upload.rename(columns={"coil_weight_kg": "coil_weight_TON"})
 
                     for col in df_upload.select_dtypes(include=["object"]).columns:
                         df_upload[col] = df_upload[col].astype(str).str.strip()
@@ -1530,7 +1535,7 @@ elif st.session_state.current_page == "PROD_HUB":
 
                     if st.button("Import Batches to Database", use_container_width=True):
                         for _, r in df_upload.iterrows():
-                            raw_weight_ton = r.get("coil_weight_kg", 0.0)
+                            raw_weight_ton = r.get("coil_weight_TON", 0.0)
                             weight_kg_val = float(raw_weight_ton if pd.notna(raw_weight_ton) else 0.0) * 1000.0
                             insert_cloud_material(
                                 r["grade"], r["thickness"], 
@@ -1544,8 +1549,9 @@ elif st.session_state.current_page == "PROD_HUB":
                                 coil_weight=weight_kg_val, # Assumes CSV/Excel values are in kg, or adjust if your CSVs are in tons too!
                                 coil_length_mm=r.get("coil_length_mm", 0.0)
                             )
-                        st.success("Successfully imported production batches!")
+                        st.toast("Successfully imported production batches!", icon="🚀")
                         st.cache_data.clear()
+                        st.session_state.file_uploader_key += 1
                         st.rerun()
                 except Exception as e:
                     st.error(f"Error reading file structure: {e}")
