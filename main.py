@@ -746,7 +746,7 @@ elif st.session_state.current_page == "RD_DECK":
                 orig_weight = info["coil_weight_kg"]
                 inv_badge = "🟢 Available" if rem_len > 10.0 else "🔴 Low Stock"
                 status_badge = "✅ EN Compliant" if is_compliant else "❌ Non-Compliant"
-                st.markdown(f"**Status:** {status_badge} | {inv_badge} | **Stock:** {rem_weight:.1f} kg / {rem_len:.1f} mm")
+                st.markdown(f"**Status:** {status_badge} | {inv_badge} | **Stock:** {rem_weight/1000.0:.1f} TON / {rem_len:.1f} mm")
                 
                 card_col1, card_col2 = st.columns([3, 1])
                 with card_col1:
@@ -867,15 +867,15 @@ elif st.session_state.current_page == "RD_DECK":
             rd_notes_val = mat_info.get("rd_notes") or mat_info.get("notes")
 
             st.markdown(f"""
-            **Remaining Stock:** **{curr_rem_w:.1f} kg** / **{curr_rem_l:.2f} mm**  
-            *(Original Baseline: {init_w:.1f} kg / {init_l:.1f} mm)*  
+            **Remaining Stock:** **{curr_rem_w/ 1000.0:.3f} TON** / **{curr_rem_l:.3f} mm**  
+            *(Original Baseline: {init_w / 1000.0:.3f} TON / {init_l:.3f} mm)*  
             📝**Notes / Log History:** {rd_notes_val if rd_notes_val else "No cuts logged yet."}
             """)
 
             with st.form(key=f"rd_tracker_form_{mat_id}"):
                 col_w1, col_w2 = st.columns(2)
                 with col_w1:
-                    weight_consumed = st.number_input("Weight Used [kg]", value=0.0, step=0.1)
+                    weight_consumed_ton = st.number_input("Weight Used [TON]", value=0.0, step=0.1, format="%.3f")
                 with col_w2:
                     length_consumed = st.number_input("Length Used [mm]", value=0.0, step=100.0)
                 
@@ -885,7 +885,7 @@ elif st.session_state.current_page == "RD_DECK":
                     try:
                         log_material_consumption(
                             material_id=mat_id,
-                            weight_used_kg=weight_consumed,
+                            weight_used_kg=weight_consumed_ton * 1000.0,
                             length_used_mm=length_consumed,
                             notes=usage_notes
                         )
@@ -1215,7 +1215,6 @@ elif st.session_state.current_page == "PROD_HUB":
             else:
                 lots_display = lots_list
             
-            # RULE 1: Highlight card in red ONLY if Father coil count is strictly under 2
             is_low = (count < 2)
             border_color = "#ff4b4b" if is_low else "#2e7d32"
             bg_color = "#fff5f5" if is_low else "#f1f8e9"
@@ -1285,7 +1284,7 @@ elif st.session_state.current_page == "PROD_HUB":
         display_df = display_df.drop(columns=["rd_remaining_weight_kg", "is_promoted"])
         
         display_df = display_df.rename(columns={
-            "current_weight_tons": "Remaining Weight [t]",
+            "current_weight_tons": "Remaining Weight [TON]",
             "current_length_mm": "Remaining Length [mm]",
             "lotto_number": "Lotto Father",
             "lotto_figlio": "Lotto Son"
@@ -1297,7 +1296,7 @@ elif st.session_state.current_page == "PROD_HUB":
             display_df = display_df[mask]
             
         def highlight_low_stock(row):
-            w_tons = row.get('Remaining Weight [t]', 0)
+            w_tons = row.get('Remaining Weight [TON]', 0)
             if 0.0001 < w_tons <= 20.0:
                 return ['background-color: #ffebee'] * len(row)
             return [''] * len(row)
@@ -1384,7 +1383,10 @@ elif st.session_state.current_page == "PROD_HUB":
                         new_yield = st.number_input("Yield Stress [MPa]", value=float(selected_row["yield_mpa"]), step=5.0)
                         new_uts = st.number_input("Failure Stress [MPa]", value=float(selected_row["uts_mpa"]), step=5.0)
                         new_elong = st.number_input("Elongation [%]", value=float(selected_row["elongation_pct"]), step=0.5)
-                        new_weight = st.number_input("Coil Weight [kg]", value=float(selected_row.get("coil_weight_kg", 0.0)), step=50.0)
+
+                        db_weight_kg = float(selected_row.get("coil_weight_kg", 0.0) or 0.0)
+                        initial_weight_tons = db_weight_kg / 1000.0 if db_weight_kg else 0.0
+                        new_weight_tons = st.number_input("Coil Weight [TON]", value=initial_weight_tons, step=1.0, format="%.3f")
                         new_length = st.number_input("Coil Length [mm]", value=float(selected_row.get("coil_length_mm", 0.0)), step=100.0)
                         
                         val_padre = selected_row["lotto_number"] if pd.notna(selected_row["lotto_number"]) else ""
@@ -1401,30 +1403,31 @@ elif st.session_state.current_page == "PROD_HUB":
                                 yield_mpa=new_yield, uts_mpa=new_uts, 
                                 elongation_pct=new_elong, lotto_number=new_lotto_padre, 
                                 lotto_figlio=new_lotto_figlio, provider=new_provider,
-                                coil_weight_kg=new_weight, coil_length_mm=new_length
+                                coil_weight_kg=new_weight_tons * 1000.0, coil_length_mm=new_length
                             )
                             st.success("Batch updated successfully!")
                             st.cache_data.clear()
                             st.rerun()
 
-                # --- SPLIT COIL CONTROLS ---
+                # --- SPLIT COIL CONTROLS (FIXED TO TON) ---
                 with st.expander("✂️ Split Coil (Father -> Sons)", expanded=False):
                     rem_w_val = selected_row.get("rd_remaining_weight_kg")
-                    current_w = float(rem_w_val) if pd.notna(rem_w_val) else float(selected_row.get("coil_weight_kg", 0.0))
+                    current_w_kg = float(rem_w_val) if pd.notna(rem_w_val) else float(selected_row.get("coil_weight_kg", 0.0))
+                    current_w_tons = current_w_kg / 1000.0
 
                     rem_l_val = selected_row.get("rd_remaining_length_mm")
                     current_l = float(rem_l_val) if pd.notna(rem_l_val) else float(selected_row.get("coil_length_mm", 0.0))
                     
                     base_lotto = selected_row['lotto_figlio'] if pd.notna(selected_row['lotto_figlio']) else selected_row['lotto_number']
                     
-                    st.write(f"Available to split: **{current_w:.2f} kg** / **{current_l:.2f} mm**")
+                    st.write(f"Available to split: **{current_w_tons:.3f} TON** / **{current_l:.2f} mm**")
                     
                     num_children = st.number_input("Number of Sons", min_value=2, max_value=10, value=2, step=1)
                     
                     with st.form(key=f"split_form_{selected_prod_id}"):
                         children_inputs = []
                         letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
-                        weight_per_mm = current_w / current_l if current_l > 0 else 0.0
+                        weight_per_mm_kg = current_w_kg / current_l if current_l > 0 else 0.0
                         
                         for i in range(int(num_children)):
                             st.markdown(f"**Son {i+1} (Son {letters[i]})**")
@@ -1434,11 +1437,13 @@ elif st.session_state.current_page == "PROD_HUB":
                             with cc2:
                                 c_length = st.number_input(f"Length {i+1} [mm]", min_value=0.0, max_value=current_l, value=0.0, key=f"split_l_{selected_prod_id}_{i}")
                             with cc3:
-                                c_weight = c_length * weight_per_mm
-                                st.write(f"Weight {i+1} [kg]")
-                                st.metric(label="", value=f"{c_weight:.2f} kg")
+                                c_weight_kg = c_length * weight_per_mm_kg
+                                c_weight_tons = c_weight_kg / 1000.0
+                                st.write(f"Weight {i+1} [TON]")
+                                st.metric(label="", value=f"{c_weight_tons:.3f} TON")
                             
-                            children_inputs.append({"lotto": c_lotto, "weight": c_weight, "length": c_length})
+                            # Database still needs child weight in kg
+                            children_inputs.append({"lotto": c_lotto, "weight": c_weight_kg, "length": c_length})
                             st.write("---")
                             
                         if st.form_submit_button("Confirm Split & Close Parent", use_container_width=True):
@@ -1460,7 +1465,7 @@ elif st.session_state.current_page == "PROD_HUB":
 
     st.write("---")
     
-    # 4. MANUAL FORM ENTRY & FILE UPLOAD
+    # 4. MANUAL FORM ENTRY & FILE UPLOAD (FIXED TO TON)
     with st.expander("✍️ Manual Form Entry & File Upload (New Batch)", expanded=False):
         entry_tab1, entry_tab2 = st.tabs(["Manual Form Entry", "📁 File Upload (.txt / .csv / .xlsx)"])
         
@@ -1477,7 +1482,7 @@ elif st.session_state.current_page == "PROD_HUB":
                     lotto_padre = st.text_input("6. Lotto Father", value="")
                     lotto_figlio = st.text_input("7. Lotto Son", value="")
                     provider = st.text_input("8. Material Supplier", value="")
-                    coil_weight = st.number_input("9. Coil Weight [TON]", value=None, step=50.0)
+                    coil_weight_tons = st.number_input("9. Coil Weight [TON]", value=None, step=10.0, format="%.3f")
                     coil_length = st.number_input("10. Coil Length [mm]", value=None, step=1000.0)
                 
                 uploaded_cert = st.file_uploader("Upload Test Certificate (.pdf, .png, .jpg)", type=["pdf", "png", "jpg", "jpeg"])
@@ -1488,12 +1493,15 @@ elif st.session_state.current_page == "PROD_HUB":
                     if uploaded_cert is not None:
                         cert_url = upload_certificate_to_cloud(uploaded_cert, active_lotto_label)
 
+                    # Convert input tons to kg before sending to DB
+                    coil_weight_kg_val = (coil_weight_tons * 1000.0) if coil_weight_tons else 0.0
+
                     insert_cloud_material(
                         grade, thickness, sig_yield, sig_fail, elongation, 
                         lotto_padre=lotto_padre, lotto_figlio=lotto_figlio, provider=provider, 
                         family=st.session_state.active_family,
                         cert_path=cert_url,
-                        coil_weight=coil_weight,
+                        coil_weight=coil_weight_kg_val,
                         coil_length_mm=coil_length
                     )
                     st.success("Batch registered into Production database!")
@@ -1522,6 +1530,8 @@ elif st.session_state.current_page == "PROD_HUB":
 
                     if st.button("Import Batches to Database", use_container_width=True):
                         for _, r in df_upload.iterrows():
+                            raw_weight_ton = r.get("coil_weight_kg", 0.0)
+                            weight_kg_val = float(raw_weight_ton if pd.notna(raw_weight_ton) else 0.0) * 1000.0
                             insert_cloud_material(
                                 r["grade"], r["thickness"], 
                                 r["yield_mpa"] if "yield_mpa" in r else r.get("yield_ns", 0.0), 
@@ -1531,7 +1541,7 @@ elif st.session_state.current_page == "PROD_HUB":
                                 r["provider"],
                                 family=st.session_state.active_family,
                                 cert_path=None,
-                                coil_weight=r.get("coil_weight_kg", 0.0),
+                                coil_weight=weight_kg_val, # Assumes CSV/Excel values are in kg, or adjust if your CSVs are in tons too!
                                 coil_length_mm=r.get("coil_length_mm", 0.0)
                             )
                         st.success("Successfully imported production batches!")
