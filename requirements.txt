@@ -2,7 +2,7 @@ streamlit==1.32.0
 pandas==2.2.0
 numpy==1.26.4
 matplotlib==3.8.3
-psycopg2-binary==2.9.13
+psycopg2-binary
 sqlalchemy==2.0.27
 supabase==2.3.0
 plotly==5.19.0
