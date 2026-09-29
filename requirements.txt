@@ -4,6 +4,6 @@ numpy==1.26.4
 matplotlib==3.8.3
 psycopg2-binary==2.9.9
 sqlalchemy==2.0.27
-supabase==2.3.0
+supabase==2.9.1
 plotly==5.19.0
 openpyxl==3.1.2
