@@ -1250,6 +1250,14 @@ elif st.session_state.current_page == "PROD_HUB":
     if not prod_df.empty:
         temp_storage_df = prod_df.copy()
         
+        # --- Robust Cleaning for Grouping Fields ---
+        temp_storage_df['grade'] = temp_storage_df['grade'].fillna('Unknown Grade').astype(str).str.strip()
+        temp_storage_df['grade'] = temp_storage_df['grade'].apply(lambda x: x if x and x.lower() != 'nan' else 'Unknown Grade')
+        
+        temp_storage_df['thickness'] = pd.to_numeric(temp_storage_df['thickness'], errors='coerce').fillna(0.0)
+        temp_storage_df['calc_length_mm'] = pd.to_numeric(temp_storage_df['calc_length_mm'], errors='coerce').fillna(0.0)
+        temp_storage_df['provider'] = temp_storage_df['provider'].fillna('Unknown Provider').astype(str).str.strip()
+        
         # Filter out parent lots that have been split into children
         split_fathers = temp_storage_df[
             temp_storage_df['lotto_figlio'].notna() & 
@@ -1264,13 +1272,13 @@ elif st.session_state.current_page == "PROD_HUB":
             lambda x: str(x).strip() if pd.notna(x) and str(x).strip() not in ['', 'None', 'nan'] else "Unknown Lot"
         )
         
-        # Format each lot with its specific weight and length
+        # Format each lot with its specific weight, length, and provider info
         temp_storage_df['lot_detail'] = temp_storage_df.apply(
-            lambda row: f"{row['active_lot']} ({row['calc_weight_kg']/1000.0:.1f} t, {row.get('calc_length_mm', 0):.0f} mm)",
+            lambda row: f"{row['active_lot']} | Prov: {row['provider']} ({row['calc_weight_kg']/1000.0:.1f} t, {row.get('calc_length_mm', 0):.0f} mm)",
             axis=1
         )
         
-        # Group ONLY by grade, thickness, and length so they combine into one box
+        # Group by grade, thickness, and length so they combine into one box
         grouped_storage = temp_storage_df.groupby(['grade', 'thickness', 'calc_length_mm']).agg(
             coil_count=('active_lot', 'count'),  # Total count of coils in this group
             total_weight=('calc_weight_kg', 'sum'),
@@ -1309,7 +1317,7 @@ elif st.session_state.current_page == "PROD_HUB":
 </svg>"""
             coil_icons_html = "".join([coil_svg for _ in range(int(count))])
             
-            cards_html += f"""<div style="border: 2px solid {border_color}; background-color: {bg_color}; padding: 12px; border-radius: 8px; text-align: left; box-shadow: 0 2px 4px rgba(0,0,0,0.04); display: inline-block; width: 270px; vertical-align: top; margin: 6px;">
+            cards_html += f"""<div style="border: 2px solid {border_color}; background-color: {bg_color}; padding: 12px; border-radius: 8px; text-align: left; box-shadow: 0 2px 4px rgba(0,0,0,0.04); display: inline-block; width: 290px; vertical-align: top; margin: 6px;">
 <div style="font-weight: bold; color: #111; font-size: 15px; margin-bottom: 8px;">
 {grade} | {thick} mm | {length:.0f} mm
 </div>
@@ -1319,8 +1327,8 @@ elif st.session_state.current_page == "PROD_HUB":
 <div style="font-size: 13px; color: #333; margin-bottom: 4px;">
 <b>Coils:</b> <span style="color: {'#ff4b4b' if count < 2 else '#1f77b4'}; font-weight: bold;">{count}</span> | <b>Weight:</b> <span style="color: {border_color}; font-weight: bold;">{tot_w_tons:.3f} t</span>
 </div>
-<div style="font-size: 11px; color: #666; line-height: 1.4; max-height: 60px; overflow-y: auto;">
-<b>LOTTO:</b><br/>{lots_list.replace(', ', '<br/>')}
+<div style="font-size: 11px; color: #666; line-height: 1.4; max-height: 70px; overflow-y: auto;">
+<b>LOT DETAILS:</b><br/>{lots_list.replace(', ', '<br/>')}
 </div>
 </div>"""
 
@@ -1328,7 +1336,7 @@ elif st.session_state.current_page == "PROD_HUB":
 {cards_html}
 </div>""", unsafe_allow_html=True)
     else:
-        st.info("No active coils currently in storage.")
+        st.info("No active coils currently in storage. Please add a batch via manual entry or file upload below.")
     
     st.write("---")
 
